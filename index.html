@@ -1,0 +1,338 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <title>Калькулятор фита щита (Малое / Большое ядро)</title>
+    <!-- Подключаем библиотеку для графиков Chart.js -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            max-width: 1100px;
+            margin: 20px auto;
+            padding: 0 20px;
+            background-color: #f4f7f6;
+            color: #333;
+        }
+        .card {
+            background: #fff;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+            margin-bottom: 20px;
+        }
+        .input-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 15px;
+            margin-bottom: 15px;
+        }
+        .input-group {
+            display: flex;
+            flex-direction: column;
+        }
+        label {
+            font-weight: bold;
+            margin-bottom: 5px;
+            font-size: 0.9em;
+        }
+        input[type="number"], select {
+            padding: 8px;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+            font-size: 0.95em;
+        }
+        button {
+            padding: 10px 20px;
+            background-color: #007bff;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-weight: bold;
+        }
+        button:hover {
+            background-color: #0056b3;
+        }
+        .info-badge {
+            background-color: #e9ecef;
+            border-left: 4px solid #007bff;
+            padding: 12px 15px;
+            margin-top: 10px;
+            font-weight: bold;
+            border-radius: 0 4px 4px 0;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 15px;
+            font-size: 0.9em;
+        }
+        th, td {
+            border: 1px solid #ddd;
+            padding: 8px 6px;
+            text-align: center;
+        }
+        th {
+            background-color: #007bff;
+            color: white;
+        }
+        tr:nth-child(even) {
+            background-color: #f9f9f9;
+        }
+        .highlight {
+            background-color: #e8f5e9;
+            font-weight: bold;
+        }
+        .progress-bg {
+            background-color: #e9ecef;
+            border-radius: 4px;
+            overflow: hidden;
+            height: 18px;
+            position: relative;
+        }
+        .progress-fill {
+            background-color: #28a745;
+            height: 100%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: white;
+            font-size: 0.75em;
+            font-weight: bold;
+        }
+    </style>
+</head>
+<body>
+
+    <h1>Калькулятор конфигурации ядра щита</h1>
+
+    <div class="card">
+        <div class="input-grid">
+            <div class="input-group">
+                <label for="coreType">Тип ядра:</label>
+                <select id="coreType" onchange="handleCoreChange()">
+                    <option value="large" selected>Большое ядро (16 слотов)</option>
+                    <option value="small">Малое ядро (8 слотов)</option>
+                </select>
+            </div>
+            <div class="input-group">
+                <label for="baseCapacity">Базовая ёмкость (очки):</label>
+                <input type="number" id="baseCapacity" value="20000" step="1000">
+            </div>
+            <div class="input-group">
+                <label for="baseRegen">Базовая регенерация (S/s):</label>
+                <input type="number" id="baseRegen" value="24" step="0.5" min="0">
+            </div>
+            <div class="input-group">
+                <label for="basePower">Базовый жор энергии (МВт):</label>
+                <input type="number" id="basePower" value="2.6" step="0.1" min="0">
+            </div>
+        </div>
+        <button onclick="calculateAndDraw()">Рассчитать</button>
+    </div>
+
+    <div class="card">
+        <canvas id="shieldChart"></canvas>
+    </div>
+
+    <div class="card">
+        <h3 id="tableHeader">Детализация вариантов</h3>
+        
+        <div class="info-badge" id="powerBadge">
+            Итоговое потребление энергии: 0 МВт
+        </div>
+
+        <table id="resultTable">
+            <thead>
+                <tr>
+                    <th>Слоты (Ёмк / Рег)</th>
+                    <th>Ёмкость (очки)</th>
+                    <th>Регенерация (S/s)</th>
+                    <th>Время зарядки</th>
+                    <th>Стоимость 1 S/s (МВт / S/s)</th>
+                    <th>КПД (S/s на 1 МВт)</th>
+                    <th>Относительный КПД (%)</th>
+                </tr>
+            </thead>
+            <tbody></tbody>
+        </table>
+    </div>
+
+    <script>
+        let myChart = null;
+
+        // Дефолтные значения под ядра
+        const CORE_PRESETS = {
+            large: { slots: 16, capacity: 20000, regen: 24, power: 2.6 },
+            small: { slots: 8, capacity: 5000, regen: 6, power: 0.65 } // Дефолтные заглушки для малого
+        };
+
+        function handleCoreChange() {
+            const selectedCore = document.getElementById('coreType').value;
+            const preset = CORE_PRESETS[selectedCore];
+
+            if (selectedCore === 'large') {
+                document.getElementById('baseCapacity').value = preset.capacity;
+                document.getElementById('baseRegen').value = preset.regen;
+                document.getElementById('basePower').value = preset.power;
+            } else {
+                // Для малого можно оставить текущие/дефолтные поля, если пользователь их правит
+                document.getElementById('baseCapacity').value = preset.capacity;
+                document.getElementById('baseRegen').value = preset.regen;
+                document.getElementById('basePower').value = preset.power;
+            }
+
+            calculateAndDraw();
+        }
+
+        function formatTime(totalSeconds) {
+            if (!isFinite(totalSeconds) || totalSeconds <= 0) return '∞';
+
+            let seconds = Math.floor(totalSeconds % 60);
+            let minutes = Math.floor((totalSeconds / 60) % 60);
+            let hours = Math.floor(totalSeconds / 3600);
+
+            let pad = (num) => String(num).padStart(2, '0');
+
+            if (hours > 0) {
+                return `${hours}:${pad(minutes)}:${pad(seconds)}`;
+            } else if (minutes > 0) {
+                return `${minutes}:${pad(seconds)}`;
+            } else {
+                return `${seconds} сек`;
+            }
+        }
+
+        function calculateAndDraw() {
+            const selectedCore = document.getElementById('coreType').value;
+            const totalSlots = CORE_PRESETS[selectedCore].slots;
+
+            const baseCapacity = parseFloat(document.getElementById('baseCapacity').value) || 0;
+            const baseRegen = parseFloat(document.getElementById('baseRegen').value) || 0;
+            const basePower = parseFloat(document.getElementById('basePower').value) || 0;
+
+            const labels = [];
+            const capacityData = [];
+            const regenData = [];
+            
+            // Расчет потребления энергии (1 базовый + N слотов)
+            const totalPowerMult = (1 + totalSlots * 1.0);
+            const totalPower = basePower * totalPowerMult;
+
+            document.getElementById('tableHeader').innerText = 
+                `Детализация вариантов (${selectedCore === 'large' ? 'Большое' : 'Малое'} ядро, всего ${totalSlots} слотов)`;
+
+            document.getElementById('powerBadge').innerText = 
+                `Итоговое потребление энергии (для всех вариантов при ${totalSlots} слотах): ${totalPower.toFixed(2)} МВт (${totalPowerMult * 100}% от базового)`;
+
+            // Максимальный КПД (достигается при 0Ё / NР)
+            const maxRegen = baseRegen * (1 + totalSlots * 1.0);
+            const maxKPD = totalPower > 0 ? (maxRegen / totalPower) : 1;
+
+            const tableBody = document.querySelector('#resultTable tbody');
+            tableBody.innerHTML = '';
+
+            for (let capSlots = 0; capSlots <= totalSlots; capSlots++) {
+                let regenSlots = totalSlots - capSlots;
+
+                let totalCapacity = baseCapacity * (1 + capSlots * 1.0);
+                let totalRegen = baseRegen * (1 + regenSlots * 1.0);
+
+                let timeToFullSec = totalRegen > 0 ? (totalCapacity / totalRegen) : Infinity;
+
+                // Энергетические метрики
+                let powerPerRegen = totalRegen > 0 ? (totalPower / totalRegen) : Infinity;
+                let regenPerPower = totalPower > 0 ? (totalRegen / totalPower) : 0;
+                
+                // Относительный КПД (%)
+                let relativeKPD = maxKPD > 0 ? ((regenPerPower / maxKPD) * 100) : 0;
+
+                labels.push(`${capSlots}Ё / ${regenSlots}Р`);
+                capacityData.push(totalCapacity);
+                regenData.push(totalRegen);
+
+                let rowClass = (regenSlots === totalSlots) ? 'class="highlight"' : '';
+
+                let row = `<tr ${rowClass}>
+                    <td><strong>${capSlots} / ${regenSlots}</strong></td>
+                    <td>${totalCapacity.toLocaleString()}</td>
+                    <td>${totalRegen.toLocaleString()} S/s</td>
+                    <td>${formatTime(timeToFullSec)}</td>
+                    <td>${powerPerRegen.toFixed(4)} МВт</td>
+                    <td>${regenPerPower.toFixed(4)} S/s</td>
+                    <td>
+                        <div class="progress-bg">
+                            <div class="progress-fill" style="width: ${relativeKPD.toFixed(1)}%;">
+                                ${relativeKPD.toFixed(1)}%
+                            </div>
+                        </div>
+                    </td>
+                </tr>`;
+                tableBody.innerHTML += row;
+            }
+
+            // Отрисовка графика
+            const ctx = document.getElementById('shieldChart').getContext('2d');
+            
+            if (myChart) {
+                myChart.destroy();
+            }
+
+            myChart = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: labels,
+                    datasets: [
+                        {
+                            label: 'Ёмкость щита (очки)',
+                            data: capacityData,
+                            borderColor: '#007bff',
+                            backgroundColor: 'rgba(0, 123, 255, 0.1)',
+                            yAxisID: 'yCapacity',
+                            fill: false,
+                            tension: 0.1
+                        },
+                        {
+                            label: 'Регенерация (S/s)',
+                            data: regenData,
+                            borderColor: '#28a745',
+                            backgroundColor: 'rgba(40, 167, 69, 0.1)',
+                            yAxisID: 'yRegen',
+                            fill: false,
+                            tension: 0.1
+                        }
+                    ]
+                },
+                options: {
+                    responsive: true,
+                    interaction: {
+                        mode: 'index',
+                        intersect: false,
+                    },
+                    scales: {
+                        x: {
+                            title: { display: true, text: 'Конфигурация слотов (Ёмкость / Регенерация)' }
+                        },
+                        yCapacity: {
+                            type: 'linear',
+                            display: true,
+                            position: 'left',
+                            title: { display: true, text: 'Ёмкость (очки)' }
+                        },
+                        yRegen: {
+                            type: 'linear',
+                            display: true,
+                            position: 'right',
+                            title: { display: true, text: 'Регенерация (S/s)' },
+                            grid: { drawOnChartArea: false }
+                        }
+                    }
+                }
+            });
+        }
+
+        window.onload = calculateAndDraw;
+    </script>
+</body>
+</html>
