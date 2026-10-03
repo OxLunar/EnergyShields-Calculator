@@ -3,6 +3,7 @@
 
 Значения по умолчанию подогнаны под сервер RUSpace-Scrapyard
 
+https://oxlunar.github.io/EnergyShields-Calculator/
 # Credits
 Gemini - сделал всю работу
 
