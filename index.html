@@ -42,6 +42,51 @@
             border-radius: 4px;
             font-size: 0.95em;
         }
+        .slider-container {
+            margin-top: 10px;
+            padding: 15px;
+            background-color: #eef2f5;
+            border-radius: 6px;
+        }
+        .slider-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 8px;
+            font-weight: bold;
+        }
+        input[type="range"] {
+            width: 100%;
+            cursor: pointer;
+        }
+        .power-summary-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+            gap: 15px;
+            margin-top: 15px;
+        }
+        .power-card {
+            background: #e9ecef;
+            border-left: 4px solid #007bff;
+            padding: 12px 15px;
+            border-radius: 0 4px 4px 0;
+        }
+        .power-card.active {
+            background: #e8f4fe;
+            border-left-color: #0056b3;
+        }
+        .power-card-title {
+            font-size: 0.85em;
+            color: #666;
+            text-transform: uppercase;
+            font-weight: bold;
+        }
+        .power-card-value {
+            font-size: 1.3em;
+            font-weight: bold;
+            color: #007bff;
+            margin-top: 4px;
+        }
         button {
             padding: 10px 20px;
             background-color: #007bff;
@@ -53,14 +98,6 @@
         }
         button:hover {
             background-color: #0056b3;
-        }
-        .info-badge {
-            background-color: #e9ecef;
-            border-left: 4px solid #007bff;
-            padding: 12px 15px;
-            margin-top: 10px;
-            font-weight: bold;
-            border-radius: 0 4px 4px 0;
         }
         table {
             width: 100%;
@@ -107,41 +144,70 @@
 
     <h1>Калькулятор конфигурации ядра щита</h1>
 
+    <!-- 1. Панель параметров -->
     <div class="card">
         <div class="input-grid">
             <div class="input-group">
                 <label for="coreType">Тип ядра:</label>
                 <select id="coreType" onchange="handleCoreChange()">
-                    <option value="large" selected>Большое ядро (16 слотов)</option>
-                    <option value="small">Малое ядро (8 слотов)</option>
+                    <option value="large" selected>Большое ядро (16 слотов макс.)</option>
+                    <option value="small">Малое ядро (8 слотов макс.)</option>
                 </select>
             </div>
             <div class="input-group">
                 <label for="baseCapacity">Базовая ёмкость (очки):</label>
-                <input type="number" id="baseCapacity" value="20000" step="1000">
+                <input type="number" id="baseCapacity" value="20000" step="1000" oninput="calculateAndDraw()">
             </div>
             <div class="input-group">
                 <label for="baseRegen">Базовая регенерация (S/s):</label>
-                <input type="number" id="baseRegen" value="24" step="0.5" min="0">
+                <input type="number" id="baseRegen" value="24" step="0.5" min="0" oninput="calculateAndDraw()">
             </div>
             <div class="input-group">
                 <label for="basePower">Базовый жор энергии (МВт):</label>
-                <input type="number" id="basePower" value="2.6" step="0.1" min="0">
+                <input type="number" id="basePower" value="2.6" step="0.1" min="0" oninput="calculateAndDraw()">
             </div>
         </div>
-        <button onclick="calculateAndDraw()">Рассчитать</button>
+
+        <div class="slider-container">
+            <div class="slider-header">
+                <span>Занятые слоты модулей:</span>
+                <span id="slotCountLabel">16 / 16 слотов</span>
+            </div>
+            <input type="range" id="usedSlots" min="0" max="16" value="16" step="1" oninput="updateSlotLabel(); calculateAndDraw();">
+        </div>
     </div>
 
+    <!-- 2. Расчет энергопотребления в самом начале -->
+    <div class="card">
+        <h3>Энергопотребление конфигурации</h3>
+        <div class="power-summary-grid">
+            <div class="power-card">
+                <div class="power-card-title">Базовый жор (0 слотов)</div>
+                <div class="power-card-value" id="basePowerVal">2.60 МВт</div>
+            </div>
+            <div class="power-card active">
+                <div class="power-card-title">Текущий жор щита</div>
+                <div class="power-card-value" id="currentPowerVal">44.20 МВт</div>
+            </div>
+            <div class="power-card">
+                <div class="power-card-title">Увеличение энергопотребления</div>
+                <div class="power-card-value" id="powerPctVal">+1600%</div>
+            </div>
+            <div class="power-card">
+                <div class="power-card-title">Макс. жор ядра</div>
+                <div class="power-card-value" id="maxPowerVal">44.20 МВт</div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 3. График -->
     <div class="card">
         <canvas id="shieldChart"></canvas>
     </div>
 
+    <!-- 4. Детализация комбинаций -->
     <div class="card">
         <h3 id="tableHeader">Детализация вариантов</h3>
-        
-        <div class="info-badge" id="powerBadge">
-            Итоговое потребление энергии: 0 МВт
-        </div>
 
         <table id="resultTable">
             <thead>
@@ -162,28 +228,34 @@
     <script>
         let myChart = null;
 
-        // Дефолтные значения под ядра
         const CORE_PRESETS = {
-            large: { slots: 16, capacity: 20000, regen: 24, power: 2.6 },
-            small: { slots: 8, capacity: 5000, regen: 6, power: 0.65 } // Дефолтные заглушки для малого
+            large: { maxSlots: 16, capacity: 20000, regen: 24, power: 2.6 },
+            small: { maxSlots: 8, capacity: 5000, regen: 6, power: 0.65 }
         };
 
         function handleCoreChange() {
             const selectedCore = document.getElementById('coreType').value;
             const preset = CORE_PRESETS[selectedCore];
 
-            if (selectedCore === 'large') {
-                document.getElementById('baseCapacity').value = preset.capacity;
-                document.getElementById('baseRegen').value = preset.regen;
-                document.getElementById('basePower').value = preset.power;
-            } else {
-                // Для малого можно оставить текущие/дефолтные поля, если пользователь их правит
-                document.getElementById('baseCapacity').value = preset.capacity;
-                document.getElementById('baseRegen').value = preset.regen;
-                document.getElementById('basePower').value = preset.power;
-            }
+            document.getElementById('baseCapacity').value = preset.capacity;
+            document.getElementById('baseRegen').value = preset.regen;
+            document.getElementById('basePower').value = preset.power;
 
+            // Обновляем ограничения ползунка
+            const slider = document.getElementById('usedSlots');
+            slider.max = preset.maxSlots;
+            slider.value = preset.maxSlots; // Сбрасываем на макс. при смене ядра
+
+            updateSlotLabel();
             calculateAndDraw();
+        }
+
+        function updateSlotLabel() {
+            const selectedCore = document.getElementById('coreType').value;
+            const maxSlots = CORE_PRESETS[selectedCore].maxSlots;
+            const usedSlots = document.getElementById('usedSlots').value;
+
+            document.getElementById('slotCountLabel').innerText = `${usedSlots} / ${maxSlots} слотов`;
         }
 
         function formatTime(totalSeconds) {
@@ -206,53 +278,57 @@
 
         function calculateAndDraw() {
             const selectedCore = document.getElementById('coreType').value;
-            const totalSlots = CORE_PRESETS[selectedCore].slots;
+            const maxSlots = CORE_PRESETS[selectedCore].maxSlots;
+            const usedSlots = parseInt(document.getElementById('usedSlots').value) || 0;
 
             const baseCapacity = parseFloat(document.getElementById('baseCapacity').value) || 0;
             const baseRegen = parseFloat(document.getElementById('baseRegen').value) || 0;
             const basePower = parseFloat(document.getElementById('basePower').value) || 0;
 
+            // Расчет энергопотребления
+            const currentPowerMult = (1 + usedSlots * 1.0);
+            const currentPower = basePower * currentPowerMult;
+            const maxPower = basePower * (1 + maxSlots * 1.0);
+
+            // Заполнение верхнего блока с энергопотреблением
+            document.getElementById('basePowerVal').innerText = `${basePower.toFixed(2)} МВт`;
+            document.getElementById('currentPowerVal').innerText = `${currentPower.toFixed(2)} МВт`;
+            document.getElementById('powerPctVal').innerText = `+${(usedSlots * 100)}% (${(currentPowerMult * 100).toFixed(0)}%)`;
+            document.getElementById('maxPowerVal').innerText = `${maxPower.toFixed(2)} МВт`;
+
+            document.getElementById('tableHeader').innerText = 
+                `Детализация вариантов (${usedSlots} из ${maxSlots} слотов занято)`;
+
+            // Максимальный КПД для ТЕКУЩЕГО количества слотов (достигается при 0Ё / NР)
+            const maxRegenForCurrentPower = baseRegen * (1 + usedSlots * 1.0);
+            const maxKPD = currentPower > 0 ? (maxRegenForCurrentPower / currentPower) : 1;
+
             const labels = [];
             const capacityData = [];
             const regenData = [];
-            
-            // Расчет потребления энергии (1 базовый + N слотов)
-            const totalPowerMult = (1 + totalSlots * 1.0);
-            const totalPower = basePower * totalPowerMult;
-
-            document.getElementById('tableHeader').innerText = 
-                `Детализация вариантов (${selectedCore === 'large' ? 'Большое' : 'Малое'} ядро, всего ${totalSlots} слотов)`;
-
-            document.getElementById('powerBadge').innerText = 
-                `Итоговое потребление энергии (для всех вариантов при ${totalSlots} слотах): ${totalPower.toFixed(2)} МВт (${totalPowerMult * 100}% от базового)`;
-
-            // Максимальный КПД (достигается при 0Ё / NР)
-            const maxRegen = baseRegen * (1 + totalSlots * 1.0);
-            const maxKPD = totalPower > 0 ? (maxRegen / totalPower) : 1;
 
             const tableBody = document.querySelector('#resultTable tbody');
             tableBody.innerHTML = '';
 
-            for (let capSlots = 0; capSlots <= totalSlots; capSlots++) {
-                let regenSlots = totalSlots - capSlots;
+            for (let capSlots = 0; capSlots <= usedSlots; capSlots++) {
+                let regenSlots = usedSlots - capSlots;
 
                 let totalCapacity = baseCapacity * (1 + capSlots * 1.0);
                 let totalRegen = baseRegen * (1 + regenSlots * 1.0);
 
                 let timeToFullSec = totalRegen > 0 ? (totalCapacity / totalRegen) : Infinity;
 
-                // Энергетические метрики
-                let powerPerRegen = totalRegen > 0 ? (totalPower / totalRegen) : Infinity;
-                let regenPerPower = totalPower > 0 ? (totalRegen / totalPower) : 0;
+                // Метрики КПД
+                let powerPerRegen = totalRegen > 0 ? (currentPower / totalRegen) : Infinity;
+                let regenPerPower = currentPower > 0 ? (totalRegen / currentPower) : 0;
                 
-                // Относительный КПД (%)
                 let relativeKPD = maxKPD > 0 ? ((regenPerPower / maxKPD) * 100) : 0;
 
                 labels.push(`${capSlots}Ё / ${regenSlots}Р`);
                 capacityData.push(totalCapacity);
                 regenData.push(totalRegen);
 
-                let rowClass = (regenSlots === totalSlots) ? 'class="highlight"' : '';
+                let rowClass = (regenSlots === usedSlots) ? 'class="highlight"' : '';
 
                 let row = `<tr ${rowClass}>
                     <td><strong>${capSlots} / ${regenSlots}</strong></td>
@@ -272,7 +348,7 @@
                 tableBody.innerHTML += row;
             }
 
-            // Отрисовка графика
+            // Отрисовка или обновление графика
             const ctx = document.getElementById('shieldChart').getContext('2d');
             
             if (myChart) {
@@ -312,7 +388,7 @@
                     },
                     scales: {
                         x: {
-                            title: { display: true, text: 'Конфигурация слотов (Ёмкость / Регенерация)' }
+                            title: { display: true, text: `Распределение занятых слотов (${usedSlots} шт)` }
                         },
                         yCapacity: {
                             type: 'linear',
@@ -332,7 +408,10 @@
             });
         }
 
-        window.onload = calculateAndDraw;
+        window.onload = function() {
+            updateSlotLabel();
+            calculateAndDraw();
+        };
     </script>
 </body>
 </html>
